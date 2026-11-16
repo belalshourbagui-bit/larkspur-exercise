@@ -7,7 +7,7 @@ Does: It finds the booking, checks the flight status and the Larkspur policy tha
 Number: 2,490 to 3,818 tokens in per API turn, for the tool descriptions alone, going from 10 to 14 tools (counted on the wire by verify.py 2.1 and 2.2).
 Safety check: It never changes a booking in chat. In the K7PQ2M trace it called five tools and never confirm_rebooking, and it told the customer the change only becomes final when they click Confirm themselves.
 Next: Give each of our three tools its own test message and prove Claude picks it, starting with care_entitlements, which overlaps with check_policy.
-Still broken: Claude has never chosen cause_in_plain_words or care_entitlements in any of our runs. Our test message only triggers reopen_stats and next_available_day, so we cannot show those two tools work.
+Still broken: Claude has never chosen care_entitlements in any of our runs. It overlaps with check_policy, so we cannot show it works. (cause_in_plain_words was picked when we asked K7PQ2M's cancellation cause.)
 Lever: <cost | speed | intelligence>
 
 ## Priya asked
