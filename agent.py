@@ -9,16 +9,182 @@ Where you edit:   grep -n '✏' agent.py   (six marks, one per place)
 Steps and gates:  https://anthropicpartnerbasecamp.bts.com/
 """
 from __future__ import annotations
+import json
+from pathlib import Path
 from typing import Any, Dict, List
 from support import (MODEL, SYSTEM_PROMPT, call_local, execute_tool, mcp_client,
                      new_session, next_available_day, record_tool_result,
                      runtime_preamble)
+from support.tools import check_policy as _check_policy   # used by care_entitlements
 
 MAX_TOOL_CALLS = 8  # Larkspur's own build capped the loop here; then a human takes over.
 
 TONE_ADDENDUM = ""                       # ✏️ Build 4, step 4.1, intelligence goal
-EXTRA_TOOLS: List[Dict[str, Any]] = []   # ✏️ Build 2, step 2.1: schemas for the tools you add
-LOCAL_TOOLS: Dict[str, Any] = {}         # ✏️ Build 2, step 2.1: the functions behind them
+EXTRA_TOOLS: List[Dict[str, Any]] = [   # ✏️ Build 2, step 2.1: schemas for the tools you add
+    {
+        "name": "reopen_stats",
+        "description": (
+            "Look up how often a kind of disruption problem came back within 72 hours when a "
+            "Larkspur person handled it, and the reason it came back. Returns whether that kind "
+            "of case reopened and the reopen reason, from a sample of eight human-handled chats. "
+            "Use it after you have worked out the customer's problem and chosen a resolution, but "
+            "before you close the conversation, so you can head off the usual follow-up: for "
+            "example, telling the customer when to expect the confirmation email or the refund "
+            "reference. Unlike the other tools, it says nothing about this customer's booking, "
+            "flight or policy entitlements. It is history about past cases, never a fact about "
+            "this one. The sample has one chat per kind of problem, so treat it as a warning sign "
+            "to address, not a rate or a promise. Never quote it to the customer as a statistic."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "intent_label": {
+                    "type": "string",
+                    "description": (
+                        "The kind of problem the customer has, chosen from the list. Pick the "
+                        "closest match after reading the booking and the flight status."
+                    ),
+                    "enum": [
+                        "rebook_after_cancellation",
+                        "compensation_hotel_request",
+                        "refund_vs_credit",
+                        "status_anxiety",
+                        "missed_connection",
+                        "compensation_goodwill",
+                        "voluntary_change_due_to_delay",
+                        "baggage_after_rebooking",
+                    ],
+                }
+            },
+            "required": ["intent_label"],
+        },
+    },
+    # Zeina
+    {
+        "name": "cause_in_plain_words",
+        "description": (
+            "Explain a flight disruption cause in simple, customer-friendly "
+            "language using Larkspur's official cause labels. Use when a "
+            "customer asks what caused their cancellation or delay, or "
+            "what a technical cause code means. Unlike get_flight_status, "
+            "which identifies the operational cause, this tool explains "
+            "that cause in words the customer can understand."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "cause_code": {
+                    "type": "string",
+                    "enum": ["WX", "ATC", "MX", "CREW", "SEC"],
+                    "description": (
+                        "Cause code returned by get_flight_status."
+                    )
+                }
+            },
+            "required": ["cause_code"]
+        }
+    },
+    # Kotti, Margarita
+    {
+        "name": "care_entitlements",
+        "description": (
+            "Returns only the meal, hotel, and ground-transport entitlements for this "
+            "disruption — not the full policy row (no goodwill, refund path, or "
+            "escalation triggers). Call this instead of check_policy when all you need "
+            "is the care answer."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pnr": {"type": "string"},
+                "cause_code": {"type": "string", "enum": ["WX", "ATC", "MX", "CREW", "SEC"]},
+                "delay_minutes": {"type": "integer"},
+                "status": {"type": "string", "enum": ["ON_TIME", "DELAYED", "CANCELLED", "DIVERTED"]},
+                "wait_minutes_for_alternative": {"type": "integer"},
+            },
+            "required": ["pnr", "cause_code", "delay_minutes", "status"],
+        },
+    },
+]
+
+
+def reopen_stats(intent_label: str) -> Dict[str, Any]:
+    """Find the human-handled chat for this kind of problem and say whether it came back within 72h."""
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).parent / "data" / "americas" / "transcripts_sample.jsonl"
+    with open(path, encoding="utf-8") as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+
+    matches = [r for r in rows if r.get("intent_label") == intent_label]
+    if not matches:
+        return {
+            "intent_label": intent_label,
+            "found": False,
+            "note": "No human-handled chat of this kind in the sample. Nothing to say about reopens.",
+        }
+
+    reopened = [r for r in matches if r.get("reopened_within_72h")]
+    return {
+        "intent_label": intent_label,
+        "found": True,
+        "sample_size": len(matches),
+        "reopened_within_72h": len(reopened),
+        "reopen_reasons": [r.get("reopen_reason") for r in reopened if r.get("reopen_reason")],
+        "source": "transcripts_sample.jsonl (8 human-handled chats, Jan-Feb 2025)",
+        "caveat": "Tiny sample. A warning sign to address, not a rate to quote to the customer.",
+    }
+
+
+# Zeina
+def cause_in_plain_words(cause_code: str) -> Dict[str, Any]:
+    source = (
+        Path(__file__).resolve().parent
+        / "data"
+        / "americas"
+        / "disruption_policy.json"
+    )
+
+    if not source.is_file():
+        return {"error": "Policy file not found."}
+
+    with source.open(encoding="utf-8") as f:
+        policy = json.load(f)
+
+    labels = policy.get("cause_labels_customer", {})
+
+    if not isinstance(labels, dict):
+        return {"error": "Cause labels have an unexpected format."}
+
+    explanation = labels.get(cause_code)
+
+    if explanation is None:
+        return {
+            "error": f"No customer explanation found for {cause_code}."
+        }
+
+    return {
+        "cause_code": cause_code,
+        "customer_explanation": explanation,
+        "source": "data/americas/disruption_policy.json"
+    }
+
+
+# Kotti, Margarita
+def care_entitlements(pnr, cause_code, status, delay_minutes, wait_minutes_for_alternative=None):
+    """Narrower than check_policy: same resolution, just the care slice of it."""
+    result = _check_policy(pnr, cause_code, delay_minutes, status, wait_minutes_for_alternative)
+    if "error" in result:
+        return result
+    return result["care"]
+
+
+LOCAL_TOOLS: Dict[str, Any] = {          # ✏️ Build 2, step 2.1: the functions behind them
+    "reopen_stats": reopen_stats,
+    "cause_in_plain_words": cause_in_plain_words,
+    "care_entitlements": care_entitlements,
+}
 
 
 def text_of(response) -> str:
@@ -70,20 +236,22 @@ def run_agent(pnr: str, last_name: str, message: str) -> str:            # ✏�
     while response.stop_reason == "tool_use" and turns < MAX_TOOL_CALLS:
         messages.append({"role": "assistant", "content": response.content})
         messages.append({"role": "user", "content": tool_results(response)})
-        answer = text_of(response)
+        
         response = client.messages.create(
             model=MODEL, max_tokens=4096, system=runtime_preamble() + SYSTEM_PROMPT + TONE_ADDENDUM,
             thinking={"type": "adaptive"}, tools=tools, messages=messages,
         )
         turns += 1
 
-    return text_of(response)
+        
+    answer = text_of(response)
+    return answer
 
 
 def tool_list() -> List[Dict[str, Any]]:                   # ✏️ Build 2, step 2.2
     """Given. Exactly what Claude is offered on every turn; run.py --show-tools
     prints this list."""
-    return build_tools() + EXTRA_TOOLS
+    return build_tools() + EXTRA_TOOLS + mcp_client.tools()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -119,7 +287,7 @@ def build_tools() -> List[Dict[str, Any]]:                 # ✏️ Build 1, ste
                 "type": "object",
                 "properties": {
                     "flight_no": {"type": "string"},
-                    "date": {"type": "string","description": "Flight local date in YYYY-MM-DD format, e.g. 2025-05-08"},
+                    "date": {"type": "string", "description": "Flight local date in YYYY-MM-DD format, e.g. 2025-05-08"},
                 },
                 "required": ["flight_no", "date"],
             },
@@ -127,9 +295,11 @@ def build_tools() -> List[Dict[str, Any]]:                 # ✏️ Build 1, ste
         {
             "name": "search_alternatives",
             "description": (
-                "Search for available alternative Larkspur flights for this booking when "
-                "the customer's original flight is disrupted and rebooking is appropriate. "
-                "Use the PNR to find suitable rebooking options."
+                "Find alternative flights for the disrupted segment on this booking, once "
+                "get_flight_status has confirmed the original flight is delayed, cancelled, "
+                "or diverted. Re-derives origin, destination, date, cabin, and party size from "
+                "the booking itself; do not pass them. Returns a list of option_ids to offer "
+                "the customer, each holdable with hold_seat."
             ),
             "input_schema": {
                 "type": "object",
