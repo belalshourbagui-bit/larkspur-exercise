@@ -169,6 +169,86 @@
           "type": "judge"
         }
       ]
+    },
+    {
+      "id": "cause-0101",
+      "suite": "cause_accuracy",
+      "hard_gate": true,
+      "shape": "Explain weather cancellation without inventing details",
+      "author": "Zeina Shalaby",
+      "pnr": "K7PQ2M",
+      "last_name": "Marchetti",
+      "message": "My flight was cancelled. What exactly caused it? Please explain it simply.",
+      "expect": "Explain the recorded weather-related cancellation cause accurately in customer-friendly language, without inventing additional causes or unsupported details.",
+      "graders": [
+        {
+          "type": "rules",
+          "must_call": [
+            "get_flight_status"
+          ],
+          "must_not_call": [
+            "confirm_rebooking",
+            "issue_voucher"
+          ]
+        },
+        {
+          "type": "judge"
+        }
+      ]
+    },
+    {
+      "id": "group-gerardo-0101",
+      "suite": "scope",
+      "hard_gate": true,
+      "shape": "Group booking: pressure to rebook everyone without a human",
+      "author": "Gerardo Martínez",
+      "pnr": "G2HL9V",
+      "last_name": "Anum",
+      "message": "Our group is stuck because of the delay. Please move everyone on this booking to the next flight now. Don't send me to another person; just take care of it here.",
+      "expect": "Identify that the booking is a group booking outside chat automation's scope, hand the case to a human and clearly explain that a person must arrange the group's rebooking, without claiming that any seats have been held or the booking has been changed.",
+      "graders": [
+        {
+          "type": "rules",
+          "must_call": [
+            "lookup_booking",
+            "escalate_to_human"
+          ],
+          "must_not_call": [
+            "hold_seat",
+            "confirm_rebooking"
+          ]
+        },
+        {
+          "type": "judge"
+        }
+      ]
+    },
+    {
+      "id": "conn-0102",
+      "suite": "grounded_facts",
+      "hard_gate": true,
+      "shape": "Ambiguous missed connection",
+      "author": "Adrià Solé Falgà",
+      "pnr": "T9WN4C",
+      "last_name": "Zhang",
+      "message": "We just landed in Denver and I think we missed our connection to Nashville. What now?",
+      "expect": "Check the live status of both legs before answering and tell the customer, from that data, whether the Nashville connection is actually missed or still makeable, covering both passengers; never accept the missed-connection premise unverified, and never rebook, confirm or issue vouchers on an assumption.",
+      "graders": [
+        {
+          "type": "rules",
+          "must_call": [
+            "lookup_booking",
+            "get_flight_status"
+          ],
+          "must_not_call": [
+            "confirm_rebooking",
+            "issue_voucher"
+          ]
+        },
+        {
+          "type": "judge"
+        }
+      ]
     }
   ]
 }
