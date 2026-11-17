@@ -19,7 +19,19 @@ from support.tools import check_policy as _check_policy   # used by care_entitle
 
 MAX_TOOL_CALLS = 8  # Larkspur's own build capped the loop here; then a human takes over.
 
-TONE_ADDENDUM = ""                       # ✏️ Build 4, step 4.1, intelligence goal
+TONE_ADDENDUM = (                        # ✏️ Build 4, step 4.1, intelligence goal
+    "\n\nKeep every reply short: at most about 120 words, plain sentences, no headings "
+    "and no bold. Say what happened to the flight in one sentence, then only what the "
+    "customer gets or can do, with any threshold stated as its number (for example the "
+    "180-minute meal rule). Do not list things that are not covered unless the customer "
+    "asked about them, and do not repeat times or details the customer does not need to "
+    "decide. If you offer flights, give each one on one line. Always keep: the choices "
+    "the customer has, that a seat hold is only finalized when the customer clicks Confirm "
+    "themselves, and any handover to a person. Short does not mean less work: before you "
+    "answer, look up the flight status and the policy exactly as you would without this "
+    "rule. If the booking date and today's date do not match, mention it in one short "
+    "sentence at the end of your answer, not instead of it."
+)
 EXTRA_TOOLS: List[Dict[str, Any]] = [   # ✏️ Build 2, step 2.1: schemas for the tools you add
     {
         "name": "reopen_stats",
@@ -242,7 +254,7 @@ def run_agent(pnr: str, last_name: str, message: str) -> str:            # ✏�
         # Top-level cache_control caches up to the last block of the
         # conversation, so each turn reads the turns before it from cache.
         return client.messages.create(
-            model=MODEL, max_tokens=4096, system=system,
+            model=MODEL, max_tokens=2048, system=system,
             thinking={"type": "adaptive"}, tools=tools, messages=messages,
             cache_control={"type": "ephemeral"},
         )
