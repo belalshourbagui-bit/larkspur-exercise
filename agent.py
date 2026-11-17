@@ -222,28 +222,39 @@ def run_agent(pnr: str, last_name: str, message: str) -> str:            # âœï¸
     """Run the tool loop until Claude stops asking for tools. Return its final text."""
     client, tracer = new_session()
     tools = tool_list()
+
+    # Cost lever: prompt caching. The cache is a prefix match in the order
+    # tools -> system -> messages, so everything stable goes first and anything
+    # that changes goes last.
+    # 1. The system prompt is the same for every customer: cache it (with the
+    #    tools in front of it) so every conversation after the first reads it.
+    # 2. The clock line changes every second, so it no longer sits at the top
+    #    of the system prompt, where it broke the prefix on every request. It is
+    #    read once per conversation and travels in the customer's first message.
+    system = [{"type": "text", "text": SYSTEM_PROMPT + TONE_ADDENDUM,
+               "cache_control": {"type": "ephemeral"}}]
     messages = [
-        {"role": "user", "content": f"PNR {pnr}, last name {last_name}. {message}"},
+        {"role": "user",
+         "content": f"{runtime_preamble()}PNR {pnr}, last name {last_name}. {message}"},
     ]
 
-    response = client.messages.create(
-        model=MODEL, max_tokens=4096, system=runtime_preamble() + SYSTEM_PROMPT + TONE_ADDENDUM,
-        thinking={"type": "adaptive"}, tools=tools, messages=messages,
-    )
+    def ask():
+        # Top-level cache_control caches up to the last block of the
+        # conversation, so each turn reads the turns before it from cache.
+        return client.messages.create(
+            model=MODEL, max_tokens=4096, system=system,
+            thinking={"type": "adaptive"}, tools=tools, messages=messages,
+            cache_control={"type": "ephemeral"},
+        )
 
-    answer = ""
+    response = ask()
     turns = 1
     while response.stop_reason == "tool_use" and turns < MAX_TOOL_CALLS:
         messages.append({"role": "assistant", "content": response.content})
         messages.append({"role": "user", "content": tool_results(response)})
-        
-        response = client.messages.create(
-            model=MODEL, max_tokens=4096, system=runtime_preamble() + SYSTEM_PROMPT + TONE_ADDENDUM,
-            thinking={"type": "adaptive"}, tools=tools, messages=messages,
-        )
+        response = ask()
         turns += 1
 
-        
     answer = text_of(response)
     return answer
 
