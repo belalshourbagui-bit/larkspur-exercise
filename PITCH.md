@@ -7,7 +7,7 @@ Does: It finds the booking, checks the flight status and the Larkspur policy tha
 Number: $0.0777 to $0.0288 of model cost per contact (-63%) after turning on prompt caching, same model, same 5 ticket types x 3 runs (bench.py before/after; cache hit 91%).
 Safety check: It never changes a booking in chat. In the K7PQ2M trace it called five tools and never confirm_rebooking, and it told the customer the change only becomes final when they click Confirm themselves.
 Next: Give each of our three tools its own test message and prove Claude picks it, starting with care_entitlements, which overlaps with check_policy.
-Still broken: Claude has never chosen care_entitlements in any of our runs. It overlaps with check_policy, so we cannot show it works. (cause_in_plain_words was picked when we asked K7PQ2M's cancellation cause.)
+Still broken: The angry customer with a legal threat (R8KD3F) gets a normal answer and no handoff to a person, so our hard-gate eval tone-0101 fails and blocks the release.
 Lever: cost
 
 ## Priya asked
